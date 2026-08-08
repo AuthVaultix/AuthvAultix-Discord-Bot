@@ -16,7 +16,7 @@ npm install && node index.js
    ```
 
 2. **Configure `.env`**:
-   Copy `.env.example` to `.env` and fill in your Discord credentials:
+   Copy `env.example` to `.env` and fill in your Discord credentials:
    ```env
    DISCORD_TOKEN=your_bot_token
    CLIENT_ID=your_client_id
