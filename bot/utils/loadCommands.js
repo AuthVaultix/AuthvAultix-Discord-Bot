@@ -22,7 +22,7 @@ function loadCommands(client) {
     }
 
     // Sort commands: priority commands first, then sort by category, then by name
-    const priority = ["help", "setsellerkey", "switchapp"];
+    const priority = ["help", "setsellerkey", "switchapp", "deleteapp"];
     rawCommands.sort((a, b) => {
         const aName = a.data.name.toLowerCase();
         const bName = b.data.name.toLowerCase();

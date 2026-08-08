@@ -1,33 +1,17 @@
-const crypto = require("crypto");
 const { pool } = require("./db");
 require("./loadEnv");
 
-const SECRET_KEY = process.env.ENCRYPT_KEY;
-if (!SECRET_KEY || SECRET_KEY.length !== 32) {
-    throw new Error("❌ ENCRYPT_KEY must be 32 characters");
-}
-
 /* ======================
-   CRYPTO
+   CRYPTO — X25519 Sealed Box
+   (Curve25519 / Ed255-family asymmetric encryption)
+   Public Key  → hardcoded in utils/asymCrypto.js
+   Private Key → BOT_PRIVATE_KEY in .env (server only)
 ====================== */
-function encrypt(text) {
-    const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv("aes-256-cbc", Buffer.from(SECRET_KEY), iv);
-    const encrypted = Buffer.concat([cipher.update(text, "utf8"), cipher.final()]);
-    return iv.toString("hex") + ":" + encrypted.toString("hex");
-}
+const { sealEncrypt, sealDecrypt } = require("./asymCrypto");
 
-function decrypt(data) {
-    try {
-        const [ivHex, encHex] = data.split(":");
-        const iv = Buffer.from(ivHex, "hex");
-        const encrypted = Buffer.from(encHex, "hex");
-        const decipher = crypto.createDecipheriv("aes-256-cbc", Buffer.from(SECRET_KEY), iv);
-        return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString("utf8");
-    } catch {
-        return null;
-    }
-}
+/* Aliases for drop-in compatibility */
+const encrypt = sealEncrypt;
+const decrypt = sealDecrypt;
 
 /* ======================
    UNIQUE APP NAME
@@ -90,6 +74,29 @@ async function switchActiveApp(userId, appName) {
 }
 
 /* ======================
+   DELETE USER APP
+====================== */
+async function deleteUserApp(userId, appName) {
+    const [result] = await pool.query(
+        "DELETE FROM user_keys WHERE userId = ? AND appName = ?",
+        [userId, appName]
+    );
+
+    if (result.affectedRows > 0) {
+        const [userRows] = await pool.query("SELECT activeApp FROM users WHERE userId = ?", [userId]);
+        if (userRows.length > 0 && userRows[0].activeApp === appName) {
+            const remainingApps = await getUserApps(userId);
+            const nextApp = remainingApps.length > 0 ? remainingApps[0] : null;
+            await pool.query("UPDATE users SET activeApp = ? WHERE userId = ?", [nextApp, userId]);
+            return { success: true, newActiveApp: nextApp };
+        }
+        return { success: true, newActiveApp: userRows[0]?.activeApp || null };
+    }
+
+    return { success: false, newActiveApp: null };
+}
+
+/* ======================
    GET ACTIVE KEY
 ====================== */
 async function getActiveSellerKey(userId) {
@@ -107,5 +114,6 @@ module.exports = {
     setSellerKey,
     getUserApps,
     switchActiveApp,
+    deleteUserApp,
     getActiveSellerKey
 };

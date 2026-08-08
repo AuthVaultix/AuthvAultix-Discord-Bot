@@ -1,121 +1,96 @@
-const mysql = require("mysql2/promise");
+const Database = require("better-sqlite3");
 const fs = require("fs");
 const path = require("path");
 require("./loadEnv");
 
-const dbHost = process.env.HOST === "localhost" ? "127.0.0.1" : process.env.HOST;
+const dbPath = process.env.DATABASE_PATH || "./json.sqlite";
 
-const pool = mysql.createPool({
-    host: dbHost,
-    user: process.env.USER,
-    password: process.env.PASSWD,
-    database: process.env.DATABASE,
-    port: process.env.PORT ? parseInt(process.env.PORT) : undefined,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
-});
+let db = null;
 
-async function migrateJsonToMysql() {
-    const configPath = path.join(__dirname, "..", "config.json");
-    if (!fs.existsSync(configPath)) {
-        return;
-    }
-    
-    console.log("⏳ Found config.json. Starting migration to MySQL...");
-    try {
-        const fileContent = fs.readFileSync(configPath, "utf8");
-        const data = JSON.parse(fileContent);
-        
-        for (const userId of Object.keys(data)) {
-            const user = data[userId];
-            const activeApp = user.activeApp || null;
-            const updatedAt = user.updatedAt || new Date().toISOString();
-            
-            // Insert user
-            await pool.query(
-                "INSERT INTO users (userId, activeApp, updatedAt) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE activeApp = ?, updatedAt = ?",
-                [userId, activeApp, updatedAt, activeApp, updatedAt]
-            );
-            
-            // Insert keys
-            if (Array.isArray(user.keys)) {
-                for (const keyObj of user.keys) {
-                    await pool.query(
-                        "INSERT INTO user_keys (userId, appName, `key`) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE `key` = ?",
-                        [userId, keyObj.appName, keyObj.key, keyObj.key]
-                    );
-                }
-            }
+function getDb() {
+    if (!db) {
+        const dir = path.dirname(dbPath);
+        if (dir && !fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
         }
-        
-        console.log("✅ Migration completed successfully!");
-        
-        // Backup config.json
-        const backupPath = path.join(__dirname, "..", "config.json.bak");
-        fs.renameSync(configPath, backupPath);
-        console.log(`📦 Backed up config.json to config.json.bak`);
-    } catch (err) {
-        console.error("❌ Failed to migrate config.json to MySQL:", err);
+        db = new Database(dbPath);
+        db.pragma("journal_mode = WAL");
     }
+    return db;
 }
+
+// Convert MySQL syntax queries to SQLite syntax
+function formatSql(sql) {
+    let formatted = sql;
+    // Replace ON DUPLICATE KEY UPDATE in users (userId is PK)
+    if (/INSERT INTO users/i.test(formatted) && /ON DUPLICATE KEY UPDATE/i.test(formatted)) {
+        if (/activeApp/i.test(formatted)) {
+            formatted = formatted.replace(/ON DUPLICATE KEY UPDATE.*/i, "ON CONFLICT(userId) DO UPDATE SET activeApp=excluded.activeApp, updatedAt=excluded.updatedAt");
+        } else {
+            formatted = formatted.replace(/ON DUPLICATE KEY UPDATE.*/i, "ON CONFLICT(userId) DO UPDATE SET updatedAt=excluded.updatedAt");
+        }
+    }
+    // Replace ON DUPLICATE KEY UPDATE in user_keys (userId, appName is UNIQUE)
+    if (/INSERT INTO user_keys/i.test(formatted) && /ON DUPLICATE KEY UPDATE/i.test(formatted)) {
+        formatted = formatted.replace(/ON DUPLICATE KEY UPDATE.*/i, "ON CONFLICT(userId, appName) DO UPDATE SET `key`=excluded.`key`");
+    }
+    return formatted;
+}
+
+const pool = {
+    async query(sql, params = []) {
+        const sqlite = getDb();
+        const formattedSql = formatSql(sql);
+        const isSelect = /^\s*SELECT/i.test(formattedSql);
+
+        const expectedParamsCount = (formattedSql.match(/\?/g) || []).length;
+        const validParams = params.slice(0, expectedParamsCount);
+
+        if (isSelect) {
+            const rows = sqlite.prepare(formattedSql).all(...validParams);
+            return [rows, []];
+        } else {
+            const info = sqlite.prepare(formattedSql).run(...validParams);
+            return [{ affectedRows: info.changes, insertId: info.lastInsertRowid }, []];
+        }
+    },
+    async getConnection() {
+        return {
+            query: this.query.bind(this),
+            release: () => {}
+        };
+    }
+};
 
 async function initializeDB() {
     try {
-        const dbName = process.env.DB_DATABASE || "bot_db";
-        
-        // Check if database exists, create if missing
-        try {
-            const tempConnection = await pool.getConnection();
-            tempConnection.release();
-        } catch (err) {
-            if (err.errno === 1049 || err.code === "ER_BAD_DB_ERROR") {
-                console.log(`🔌 Database "${dbName}" does not exist. Creating it...`);
-                const initPool = mysql.createPool({
-                    host: process.env.HOST || "localhost",
-                    user: process.env.USER || "root",
-                    password: process.env.PASSWD || "",
-                    port: parseInt(process.env.PORT || "3306")
-                });
-                await initPool.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
-                await initPool.end();
-                console.log(`✅ Database "${dbName}" created successfully.`);
-            } else {
-                throw err;
-            }
-        }
+        const sqlite = getDb();
+        console.log("✅ SQLite Database Connected successfully:", dbPath);
 
-        const connection = await pool.getConnection();
-        console.log("✅ MySQL Database Connected successfully");
-        
         // Create users table
-        await connection.query(`
+        sqlite.exec(`
             CREATE TABLE IF NOT EXISTS users (
-                userId VARCHAR(64) PRIMARY KEY,
-                activeApp VARCHAR(255) NULL,
-                updatedAt VARCHAR(64) NULL
-            )
+                userId TEXT PRIMARY KEY,
+                activeApp TEXT NULL,
+                updatedAt TEXT NULL
+            );
         `);
-        
+
         // Create user_keys table
-        await connection.query(`
+        sqlite.exec(`
             CREATE TABLE IF NOT EXISTS user_keys (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                userId VARCHAR(64) NOT NULL,
-                appName VARCHAR(255) NOT NULL,
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                userId TEXT NOT NULL,
+                appName TEXT NOT NULL,
                 \`key\` TEXT NOT NULL,
-                UNIQUE KEY unique_user_app (userId, appName),
+                UNIQUE(userId, appName),
                 FOREIGN KEY (userId) REFERENCES users(userId) ON DELETE CASCADE
-            )
+            );
         `);
-        
-        connection.release();
-        console.log("✅ MySQL tables initialized");
-        
-        // Migrate config.json data if exists
-        await migrateJsonToMysql();
+
+        console.log("✅ SQLite tables initialized");
     } catch (err) {
-        console.error("❌ MySQL Database initialization failed:", err);
+        console.error("❌ SQLite Database initialization failed:", err);
         throw err;
     }
 }

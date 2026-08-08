@@ -44,8 +44,8 @@ module.exports = {
             totalCommands++;
         });
 
-        // Sort commands in each category, prioritizing help, setsellerkey, and switchapp
-        const priority = ["help", "setsellerkey", "switchapp"];
+        // Sort commands in each category, prioritizing help, setsellerkey, switchapp, and deleteapp
+        const priority = ["help", "setsellerkey", "switchapp", "deleteapp"];
         for (const cat in categories) {
             categories[cat].sort((a, b) => {
                 const aName = a.data.name.toLowerCase();
@@ -118,7 +118,8 @@ module.exports = {
                         value: [
                             "• **/help** - Browse all available commands by category.",
                             "• **/setsellerkey `<key>**` - Configure your AuthSecure seller key.",
-                            "• **/switchapp** - Select your active KeyAuth application."
+                            "• **/switchapp** - Select your active KeyAuth application.",
+                            "• **/deleteapp** - Delete a saved application seller key."
                         ].join("\n"),
                         inline: false
                     },

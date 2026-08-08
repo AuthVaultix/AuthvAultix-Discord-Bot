@@ -1,4 +1,9 @@
 require("./utils/loadEnv");
+// 🔐 MITM Protection — MUST be required FIRST before any axios usage
+// Patches global axios: strict TLS, HMAC signing, cert pinning
+require("./utils/secureClient");
+// 🛑 Redis Rate Limiter — 5 req/min, 60s ban on exceed (persistent across restarts)
+const { checkRateLimit } = require("./utils/redisRateLimit");
 const { 
     Client, 
     GatewayIntentBits, 
@@ -82,7 +87,7 @@ client.on("guildCreate", async guild => {
 /* ======================================
    HANDLE COMMANDS
 ====================================== */
-const { switchActiveApp } = require("./utils/config");
+const { switchActiveApp, deleteUserApp } = require("./utils/config");
 
 client.on("interactionCreate", async interaction => {
     // Staff-to-Owner mapping: If in a guild and user has 'perms' role, map to ownerId
@@ -126,27 +131,66 @@ client.on("interactionCreate", async interaction => {
     }
 
     /* ===============================
-       📋 SELECT MENU (switchapp)
+       📋 SELECT MENU (switchapp & deleteapp)
     =============================== */
     if (interaction.isStringSelectMenu()) {
 
-        if (interaction.customId !== "switchapp_select") return;
+        if (interaction.customId === "switchapp_select") {
+            const appName = interaction.values[0];
+            const userId = interaction.user.id;
 
-        const appName = interaction.values[0];
-        const userId = interaction.user.id;
+            await switchActiveApp(userId, appName);
 
-        await switchActiveApp(userId, appName);
+            return interaction.update({
+                embeds: [
+                    new EmbedBuilder()
+                        .setColor(Colors.Green)
+                        .setTitle("✅ Application Selected")
+                        .setDescription(`Active application set to **${appName}**`)
+                        .setTimestamp()
+                ],
+                components: []
+            });
+        }
 
-        return interaction.update({
-            embeds: [
-                new EmbedBuilder()
-                    .setColor(Colors.Green)
-                    .setTitle("✅ Application Selected")
-                    .setDescription(`Active application set to **${appName}**`)
-                    .setTimestamp()
-            ],
-            components: []
-        });
+        if (interaction.customId === "deleteapp_select") {
+            const appName = interaction.values[0];
+            const userId = interaction.user.id;
+
+            const res = await deleteUserApp(userId, appName);
+
+            if (!res.success) {
+                return interaction.update({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setColor(Colors.Red)
+                            .setTitle("❌ Delete Failed")
+                            .setDescription(`Failed to delete application **${appName}**.`)
+                    ],
+                    components: []
+                });
+            }
+
+            let desc = `Application **${appName}** has been deleted successfully.`;
+            if (res.newActiveApp) {
+                desc += `\n\n🔄 Active application automatically switched to **${res.newActiveApp}**.`;
+            } else {
+                desc += `\n\n⚠️ No active application remaining. Use \`/setsellerkey\` to add a new key.`;
+            }
+
+            return interaction.update({
+                embeds: [
+                    new EmbedBuilder()
+                        .setColor(Colors.Orange)
+                        .setTitle("🗑️ Application Deleted")
+                        .setDescription(desc)
+                        .setTimestamp()
+                ],
+                components: []
+            });
+        }
+
+        return;
     }
 
     /* ===============================
@@ -164,21 +208,43 @@ client.on("interactionCreate", async interaction => {
 
     /* ===============================
        💬 DM — ALLOWED FOR ALL
-       (ID mapping guild-only hai, toh DM mein
-        koi bhi owner ke apps access nahi kar sakta.
-        Seller key check khud access control karega.)
+       (ID mapping is guild-only, so in DMs
+        no owner can access another owner's apps.
+        Seller key checks will handle access control themselves.)
     =============================== */
     if (!interaction.guild) {
+
+        /* 🛑 Redis Rate limit check — DM commands */
+        const dmLimit = await checkRateLimit(interaction.user.id);
+        if (!dmLimit.allowed) {
+            const desc = dmLimit.banned
+                ? `🚫 You have been **temporarily banned** for sending too many commands.\n\nPlease wait **${dmLimit.retryAfterSec}s** before trying again.`
+                : `⏱️ You are sending commands too fast.\n\nPlease wait **${dmLimit.retryAfterSec}s** before trying again.`;
+            return interaction.reply({
+                embeds: [
+                    new EmbedBuilder()
+                        .setTitle(dmLimit.banned ? "🚫 Temporarily Banned" : "⏱️ Rate Limited")
+                        .setDescription(desc)
+                        .setColor(dmLimit.banned ? Colors.Red : Colors.Orange)
+                        .setFooter({ text: `Limit: 5 commands / 60s` })
+                        .setTimestamp()
+                ],
+                flags: 64
+            });
+        }
+
         try {
             await asyncLocalStorage.run(interaction, () => command.execute(interaction, { axios }));
         } catch (err) {
             console.error(err);
             logError("DMCommandError", err);
             try {
-                await interaction.reply({
-                    content: `⚠️ DM command error (App: ${interaction.activeApp || "None"})`,
-                    flags: 64
-                });
+                const msg = `⚠️ DM command error (App: ${interaction.activeApp || "None"})`;
+                if (interaction.deferred || interaction.replied) {
+                    await interaction.editReply({ content: msg });
+                } else {
+                    await interaction.reply({ content: msg, flags: 64 });
+                }
             } catch (replyErr) {
                 console.error("❌ Failed to send DM command error reply:", replyErr);
             }
@@ -207,24 +273,44 @@ client.on("interactionCreate", async interaction => {
     /* ===============================
        🚀 EXECUTE COMMAND
     =============================== */
-    try {
-        await asyncLocalStorage.run(interaction, () => command.execute(interaction, { axios }));
-    } catch (err) {
-        console.error(err);
-        logError("GuildCommandError", err);
-        try {
-            await interaction.reply({
-                embeds: [
-                    new EmbedBuilder()
-                        .setDescription("⚠️ Error executing command")
-                        .setColor(Colors.Red)
-                ],
-                flags: 64
-            });
-        } catch (replyErr) {
-            console.error("❌ Failed to send command error reply:", replyErr);
-        }
+    /* 🛑 Redis Rate limit check — Guild commands */
+    const guildLimit = await checkRateLimit(interaction.user.id);
+    if (!guildLimit.allowed) {
+        const desc = guildLimit.banned
+            ? `🚫 You have been **temporarily banned** for sending too many commands.\n\nPlease wait **${guildLimit.retryAfterSec}s** before trying again.`
+            : `⏱️ You are sending commands too fast.\n\nPlease wait **${guildLimit.retryAfterSec}s** before trying again.`;
+        return interaction.reply({
+            embeds: [
+                new EmbedBuilder()
+                    .setTitle(guildLimit.banned ? "🚫 Temporarily Banned" : "⏱️ Rate Limited")
+                    .setDescription(desc)
+                    .setColor(guildLimit.banned ? Colors.Red : Colors.Orange)
+                    .setFooter({ text: `Limit: 5 commands / 60s` })
+                    .setTimestamp()
+            ],
+            flags: 64
+        });
     }
+
+        try {
+            await asyncLocalStorage.run(interaction, () => command.execute(interaction, { axios }));
+        } catch (err) {
+            console.error(err);
+            logError("GuildCommandError", err);
+            try {
+                const errorEmbed = new EmbedBuilder()
+                    .setDescription("⚠️ Error executing command")
+                    .setColor(Colors.Red);
+
+                if (interaction.deferred || interaction.replied) {
+                    await interaction.editReply({ embeds: [errorEmbed] });
+                } else {
+                    await interaction.reply({ embeds: [errorEmbed], flags: 64 });
+                }
+            } catch (replyErr) {
+                console.error("❌ Failed to send command error reply:", replyErr);
+            }
+        }
 });
 
 
@@ -236,7 +322,7 @@ client.on("interactionCreate", async interaction => {
     try {
         await initializeDB();
     } catch (err) {
-        console.error("❌ Failed to initialize MySQL database, exiting...", err);
+        console.error("❌ Failed to initialize SQLite database, exiting...", err);
         process.exit(1);
     }
     client.login(TOKEN);
