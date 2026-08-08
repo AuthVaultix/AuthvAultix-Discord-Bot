@@ -1,57 +1,37 @@
 # Discord Seller Bot
 
-This repository contains a Discord seller bot. The actual bot code is inside the `bot/` folder.
+High-performance Discord seller bot powered by SQLite (`json.sqlite`) and Discord.js v14.
 
-## Setup
-
-1. Open the workspace folder in your code editor.
-2. Install dependencies in the `bot/` folder:
+## 🚀 Quick Start (1-Line Command)
 
 ```bash
-cd bot
-npm install
+npm install && node index.js
 ```
 
-3. Create a `.env` file in the workspace root (same folder as `README.txt`), or update the existing `.env` file with your configuration.
+## 🛠️ Step-by-Step Setup
 
-4. Required `.env` values:
+1. **Install Dependencies**:
+   ```bash
+   npm install
+   ```
 
-```env
-DISCORD_TOKEN=
-CLIENT_ID=
-SELLER_API_KEY=
-BASE_URL=https://authvaultix.com/api/seller
-ENCRYPT_KEY=6xT9wXqA1pLrN7dV4zQeB8MfR2yHc5kG
+2. **Configure `.env`**:
+   Copy `.env.example` to `.env` and fill in your Discord credentials:
+   ```env
+   DISCORD_TOKEN=your_bot_token
+   CLIENT_ID=your_client_id
+   BASE_URL=https://authvaultix.com/api/seller/
+   BOT_PRIVATE_KEY=your_private_key
+   DATABASE_PATH=./json.sqlite
+   ```
 
-HOST=localhost
-PORT=3306
-USER=root
-PASSWD=
-DATABASE=
-```
+3. **Start the Bot**:
+   ```bash
+   node index.js
+   ```
 
-5. Start the bot from the workspace root:
-
-```bash
-run.bat
-```
-
-Or start directly from the `bot/` folder:
-
-```bash
-cd bot
-node index.js
-```
-
-## Discord Developer Portal
-
-1. Go to Discord Developer Portal.
-2. Create a new application.
-3. Open the "BOT" tab and add the bot.
-4. Go to "OAuth2" -> "URL Generator".
-5. Select scopes: `bot`, `application.commands`.
-6. Select bot permissions: `Administrator`.
-7. Copy the generated URL and authorize the bot to your server.
-8. Type `/` in a channel to see available slash commands.
-
-> Note: No `suno` file was found in the current repository.
+## ⚡ Features
+- **SQLite Database**: Native `better-sqlite3` storage (`./json.sqlite`).
+- **X25519 Encryption**: Asymmetric encryption for seller API keys.
+- **MITM Protection**: TLS 1.2+ hardened client agent.
+- **Redis Rate Limiting**: Built-in rate limiter with automatic offline fallback mode.
