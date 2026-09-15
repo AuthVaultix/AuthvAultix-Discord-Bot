@@ -1,0 +1,27 @@
+services:
+  discord-bot:
+    build: .
+    container_name: authvaultix-discord-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Persist SQLite database file
+      - ./json.sqlite:/app/json.sqlite
+      # Persist logs
+      - ./logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+        required: false
+
+  redis:
+    image: redis:alpine
+    container_name: authvaultix-discord-redis
+    restart: unless-stopped
+    command: redis-server --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5

@@ -1,0 +1,27 @@
+{
+  "name": "authvaultix-discord-bot",
+  "version": "1.0.0",
+  "description": "Official Discord Bot for Authvaultix License and User Administration",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "generate-keys": "node scripts/generateKeys.js"
+  },
+  "keywords": [
+    "authvaultix",
+    "discord-bot",
+    "licensing",
+    "authentication",
+    "seller-bot"
+  ],
+  "author": "Authvaultix",
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "axios": "^1.16.1",
+    "better-sqlite3": "^13.0.2",
+    "discord.js": "^14.26.4",
+    "dotenv": "^17.4.2",
+    "ioredis": "^5.11.1"
+  }
+}
