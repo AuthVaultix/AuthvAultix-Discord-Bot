@@ -222,4 +222,4 @@ npm start
 
 ## License
 
-This project is part of the **Authvaultix** organization. Distributed under the MIT License.
+This project is part of the **Authvaultix** organization. Distributed under the **Elastic License 2.0**. See [LICENSE.txt](LICENSE.txt) for details.
