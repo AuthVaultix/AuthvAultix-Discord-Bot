@@ -52,6 +52,8 @@ module.exports = {
                 new EmbedBuilder()
                     .setTitle("🔁 Switch Application")
                     .setDescription("Select the application you want to use")
+                    .setDescription("🗑️ Use /deleteapp to delete active app")
+                    
                     .setColor(Colors.Blue)
             ],
             components: [row]

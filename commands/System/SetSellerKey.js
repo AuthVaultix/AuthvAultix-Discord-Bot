@@ -57,6 +57,7 @@ module.exports = {
                         `\`${finalAppName}\``,
                         ``,
                         `🚀 Use /switchapp to select active app`
+                        `🗑️ Use /deleteapp to delete active app`
                     ].join("\n")
                 )
                 .setTimestamp();
