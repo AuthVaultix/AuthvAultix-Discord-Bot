@@ -121,10 +121,41 @@ client.on("interactionCreate", async interaction => {
     if (interaction.isButton()) {
 
         if (interaction.customId === "open_switchapp") {
-            return interaction.reply({
-                content: "👉 Please use `/switchapp` to select your active application.",
-                flags: 64 // ephemeral
-            });
+            if (interaction.guild) {
+                const isOwner = interaction.user.id === interaction.guild.ownerId;
+                const permsRole = interaction.guild.roles.cache.find(r => r.name === "perms");
+                const hasPerms = isOwner || interaction.member?.roles?.cache?.has(permsRole?.id);
+                if (!hasPerms) {
+                    return interaction.reply({
+                        embeds: [
+                            new EmbedBuilder()
+                                .setTitle("🚫 Permissions required")
+                                .setDescription("You must have the `perms` role to use this command.")
+                                .setColor(Colors.Red)
+                        ],
+                        flags: 64
+                    });
+                }
+            }
+
+            const switchAppCmd = interaction.client.commands.get("switchapp");
+            if (switchAppCmd) {
+                try {
+                    return await asyncLocalStorage.run(interaction, () => switchAppCmd.execute(interaction, { axios }));
+                } catch (err) {
+                    console.error("Button open_switchapp error:", err);
+                    logError("ButtonSwitchAppError", err);
+                    const errorEmbed = new EmbedBuilder()
+                        .setDescription("⚠️ Error opening switch application")
+                        .setColor(Colors.Red);
+
+                    if (interaction.deferred || interaction.replied) {
+                        return await interaction.editReply({ embeds: [errorEmbed] });
+                    } else {
+                        return await interaction.reply({ embeds: [errorEmbed], flags: 64 });
+                    }
+                }
+            }
         }
 
         return;
@@ -190,6 +221,21 @@ client.on("interactionCreate", async interaction => {
             });
         }
 
+        return;
+    }
+
+    /* ===============================
+       🔍 AUTOCOMPLETE HANDLER
+    =============================== */
+    if (interaction.isAutocomplete()) {
+        const command = interaction.client.commands.get(interaction.commandName);
+        if (command && typeof command.autocomplete === "function") {
+            try {
+                await command.autocomplete(interaction);
+            } catch (err) {
+                console.error("Autocomplete Error:", err);
+            }
+        }
         return;
     }
 
