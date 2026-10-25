@@ -21,25 +21,33 @@ module.exports = {
         ),
 
     async execute(interaction) {
-        // 🔥 VERY IMPORTANT
         await interaction.deferReply({ flags: 64 }); // EPHEMERAL SAFE
 
         try {
-            const rawKey = interaction.options.getString("key");
+            const rawKey = interaction.options.getString("key").trim();
 
-            // 🔗 API call
+            // API call
             const res = await axios.get(
-                `https://authvaultix.com/api/getApplicationFromSellerKey.php?sellerkey=${rawKey}`,
-                { timeout: 5000 }
+                `https://authvaultix.com/api/getApplicationFromSellerKey.php?sellerkey=${encodeURIComponent(rawKey)}`,
+                { timeout: 8000 }
             );
 
             if (!res.data?.application?.name) {
-                return interaction.editReply("❌ Invalid seller key");
+                const errMsg = res.data?.message || "Invalid seller key";
+                return interaction.editReply({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setColor(Colors.Red)
+                            .setTitle("❌ Invalid Seller Key")
+                            .setDescription(`Server response: **${errMsg}**\nPlease make sure your key is active in your AuthVaultix dashboard.`)
+                            .setTimestamp()
+                    ]
+                });
             }
 
             const baseAppName = res.data.application.name;
 
-            // 🔐 SAVE (AUTO XD / XD-2 / XD-3)
+            // SAVE (AUTO XD / XD-2 / XD-3)
             const finalAppName = await setSellerKey(
                 interaction.user.id,
                 baseAppName,
@@ -47,17 +55,17 @@ module.exports = {
             );
 
             const embed = new EmbedBuilder()
-                .setTitle("🔐 Seller Key Saved Successfully!")
+                .setTitle("✅ Seller Key Saved Successfully!")
                 .setColor(Colors.Green)
                 .setDescription(
                     [
-                        `✅ Seller key stored safely`,
+                        `🔒 Seller key stored safely.`,
                         ``,
-                        `📦 **Application Name:**`,
+                        `📱 **Application Name:**`,
                         `\`${finalAppName}\``,
                         ``,
-                        `🚀 Use /switchapp to select active app`
-                        `🗑️ Use /deleteapp to delete active app`
+                        `🚀 Use \`/switchapp\` to select active app`,
+                        `🗑️ Use \`/deleteapp\` to delete active app`
                     ].join("\n")
                 )
                 .setTimestamp();
@@ -77,7 +85,14 @@ module.exports = {
 
         } catch (err) {
             console.error("SETSELLERKEY ERROR:", err);
-            return interaction.editReply("❌ Something went wrong. Try again.");
+            return interaction.editReply({
+                embeds: [
+                    new EmbedBuilder()
+                        .setColor(Colors.Red)
+                        .setDescription(`❌ Something went wrong: ${err.message || "Try again."}`)
+                        .setTimestamp()
+                ]
+            });
         }
     }
 };

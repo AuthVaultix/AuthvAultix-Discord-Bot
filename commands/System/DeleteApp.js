@@ -14,12 +14,9 @@ module.exports = {
         .setDescription("Delete a saved application seller key"),
 
     async execute(interaction) {
-
-        // 🔥 IMPORTANT (prevents 10062)
         await interaction.deferReply({ flags: 64 });
 
         const userId = interaction.user.id;
-
         const apps = await getUserApps(userId);
 
         if (!apps || apps.length === 0) {
@@ -32,7 +29,6 @@ module.exports = {
             });
         }
 
-        // ✅ REMOVE DUPLICATES (FIX 50035)
         const uniqueApps = [...new Set(apps)];
 
         const menu = new StringSelectMenuBuilder()

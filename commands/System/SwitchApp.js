@@ -14,12 +14,9 @@ module.exports = {
         .setDescription("Select active application"),
 
     async execute(interaction) {
-
-        // 🔥 IMPORTANT (prevents 10062)
         await interaction.deferReply({ flags: 64 });
 
         const userId = interaction.user.id;
-
         const apps = await getUserApps(userId);
 
         if (!apps || apps.length === 0) {
@@ -27,12 +24,11 @@ module.exports = {
                 embeds: [
                     new EmbedBuilder()
                         .setColor(Colors.Red)
-                        .setDescription("❌ No applications found for your seller keys.")
+                        .setDescription("❌ No applications found. Use `/setsellerkey` first.")
                 ]
             });
         }
 
-        // ✅ REMOVE DUPLICATES (FIX 50035)
         const uniqueApps = [...new Set(apps)];
 
         const menu = new StringSelectMenuBuilder()
@@ -41,7 +37,8 @@ module.exports = {
             .addOptions(
                 uniqueApps.map(app => ({
                     label: app,
-                    value: app
+                    value: app,
+                    description: `Switch to ${app}`
                 }))
             );
 
@@ -50,10 +47,8 @@ module.exports = {
         return interaction.editReply({
             embeds: [
                 new EmbedBuilder()
-                    .setTitle("🔁 Switch Application")
-                    .setDescription("Select the application you want to use")
-                    .setDescription("🗑️ Use /deleteapp to delete active app")
-                    
+                    .setTitle("🔄 Switch Application")
+                    .setDescription("Select the application you want to use:\n🗑️ Use `/deleteapp` to delete an app.")
                     .setColor(Colors.Blue)
             ],
             components: [row]
