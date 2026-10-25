@@ -1,4 +1,4 @@
-﻿# Node.js dependencies & lockfiles
+# Node.js dependencies & lockfiles
 node_modules/
 package-lock.json
 npm-debug.log*
@@ -23,6 +23,7 @@ logs/
 # Local personal files
 README.txt
 requird.txt
+scripts/cleanInvalidSellerKeys.js
 
 # OS / Editor artifacts
 .DS_Store
