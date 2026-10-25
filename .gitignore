@@ -5,27 +5,22 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Environment and sensitive keys (SECURITY - NEVER COMMIT SECRETS)
+# Environment and sensitive keys
 .env
-.env.*
 .env.local
-*.env
 
-# SQLite Database files (Sensitive user & license data)
+# SQLite Database files
 *.sqlite
-*.sqlite*
 *.sqlite-wal
 *.sqlite-shm
 *.db
-*.db*
 *.db-journal
 
-# Logs & Runtime Data
+# Logs
 logs/
-logs/*
 *.log
 
-# Local personal notes / text docs
+# Local personal files
 README.txt
 requird.txt
 
