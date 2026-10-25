@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder, Colors } = require("discord.js");
+﻿const { SlashCommandBuilder, EmbedBuilder, Colors } = require("discord.js");
 const axios = require("axios");
 const { getActiveSellerKey } = require("../../utils/config");
 
@@ -45,12 +45,22 @@ module.exports = {
         try {
             const res = await axios.get(url);
 
-            if (!res.data.success) {
+            let data = res.data;
+            if (typeof data === "string") {
+                try {
+                    data = JSON.parse(data.trim());
+                } catch (_) {}
+            }
+
+            const isSuccess = data && (data.success === true || data.success === "true");
+
+            if (!isSuccess) {
+                const errorMsg = data?.message || data?.msg || (typeof data === "string" ? data : "User deletion failed");
                 return interaction.editReply({
                     embeds: [
                         new EmbedBuilder()
                             .setColor(Colors.Red)
-                            .setDescription(`❌ ${res.data.msg}`)
+                            .setDescription(`❌ ${errorMsg}`)
                             .setTimestamp()
                     ]
                 });
@@ -59,7 +69,7 @@ module.exports = {
             return interaction.editReply({
                 embeds: [
                     new EmbedBuilder()
-                        .setTitle("🗑 User Deleted Successfully")
+                        .setTitle("✅ User Deleted Successfully")
                         .setColor(Colors.Green)
                         .addFields(
                             { name: "👤 Username", value: `\`${username}\`` }
@@ -70,12 +80,13 @@ module.exports = {
             });
 
         } catch (err) {
-            console.error(err);
+            const apiMsg = err.response?.data?.message || err.response?.data?.msg || err.message;
+            console.error(`[DeleteUser Error] ${apiMsg}`);
             return interaction.editReply({
                 embeds: [
                     new EmbedBuilder()
                         .setColor(Colors.Red)
-                        .setDescription("❌ API Request Failed — Check Console.")
+                        .setDescription(`❌ API Request Failed – ${apiMsg}`)
                         .setTimestamp()
                 ]
             });

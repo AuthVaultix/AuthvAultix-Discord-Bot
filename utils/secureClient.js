@@ -153,6 +153,7 @@ function signRequest(params) {
 /* Set global defaults */
 axios.defaults.timeout = 10_000; // 10 second timeout on ALL requests
 axios.defaults.httpsAgent = strictTlsAgent;
+axios.defaults.validateStatus = () => true; // Prevent AxiosError throws on 4xx/5xx responses
 
 /* Request interceptor — adds security metadata */
 axios.interceptors.request.use(

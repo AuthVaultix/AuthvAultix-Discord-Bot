@@ -2,6 +2,7 @@ const { AsyncLocalStorage } = require("async_hooks");
 const axios = require("axios");
 const { EmbedBuilder, Colors } = require("discord.js");
 const { pool } = require("./db");
+const { deleteUserApp } = require("./config");
 
 async function getActiveApp(userId) {
     try {
@@ -18,30 +19,82 @@ async function getActiveApp(userId) {
 
 const asyncLocalStorage = new AsyncLocalStorage();
 
+function extractApiDetails(data) {
+    if (!data) return null;
+    let parsed = data;
+    if (typeof data === "string") {
+        try {
+            parsed = JSON.parse(data.trim());
+        } catch (_) {
+            return { raw: data.trim(), message: data.trim(), success: false };
+        }
+    }
+    if (parsed && typeof parsed === "object") {
+        const msg = parsed.message || parsed.msg || parsed.error || null;
+        const isSuccess = parsed.success === true || parsed.success === "true";
+        return { raw: data, message: msg, success: isSuccess, obj: parsed };
+    }
+    return null;
+}
+
+async function processApiResponse(data) {
+    const details = extractApiDetails(data);
+    if (!details) return;
+
+    const interaction = asyncLocalStorage.getStore();
+    if (!interaction) return;
+
+    const lowerMsg = (details.message || "").toLowerCase();
+    const rawStr = typeof details.raw === "string" ? details.raw.toLowerCase() : "";
+
+    // 1. Function disabled by app owner
+    if (lowerMsg.includes("disabled by app owner") || rawStr.includes("disabled by app owner")) {
+        interaction.lastApiError = details.message || details.raw;
+        interaction.isDisabledApi = true;
+    }
+
+    // 2. Invalid seller key -> Auto delete the invalid app and alert
+    if (lowerMsg.includes("invalid seller key") || rawStr.includes("invalid seller key")) {
+        interaction.lastApiError = details.message || "Invalid seller key";
+        interaction.isInvalidSellerKey = true;
+
+        try {
+            const activeApp = interaction.activeApp || (await getActiveApp(interaction.user.id));
+            if (activeApp) {
+                const delRes = await deleteUserApp(interaction.user.id, activeApp);
+                if (delRes && delRes.success) {
+                    interaction.deletedApp = activeApp;
+                    interaction.newActiveApp = delRes.newActiveApp;
+                    interaction.activeApp = delRes.newActiveApp || null;
+                }
+            }
+        } catch (dbErr) {
+            console.error("Error auto-deleting app with invalid seller key:", dbErr);
+        }
+    }
+
+    // Record last API message for all failures if not successful
+    if (!details.success && details.message) {
+        interaction.lastApiMessage = details.message;
+    }
+}
+
 // Intercept Axios responses globally
 axios.interceptors.response.use(
-    (response) => {
-        if (typeof response.data === "string" && response.data.toLowerCase().includes("disabled by app owner")) {
-            const interaction = asyncLocalStorage.getStore();
-            if (interaction) {
-                interaction.lastApiError = response.data.trim();
-            }
-        }
+    async (response) => {
+        await processApiResponse(response.data);
         return response;
     },
-    (error) => {
-        if (error.response && typeof error.response.data === "string" && error.response.data.toLowerCase().includes("disabled by app owner")) {
-            const interaction = asyncLocalStorage.getStore();
-            if (interaction) {
-                interaction.lastApiError = error.response.data.trim();
-            }
+    async (error) => {
+        if (error.response) {
+            await processApiResponse(error.response.data);
         }
         return Promise.reject(error);
     }
 );
 
 /**
- * Patches interaction reply methods to intercept and beautify disabled API function messages.
+ * Patches interaction reply methods to intercept and beautify API responses.
  */
 function patchInteraction(interaction) {
     const originalReply = interaction.reply;
@@ -50,7 +103,6 @@ function patchInteraction(interaction) {
     const originalUpdate = interaction.update;
 
     const checkAndModifyOptions = (options) => {
-        let isDisabled = false;
         let rawError = interaction.lastApiError;
 
         let stringifyOptions = "";
@@ -62,7 +114,37 @@ function patchInteraction(interaction) {
 
         const lower = stringifyOptions.toLowerCase();
 
-        // 1. If the message explicitly contains "disabled by app owner"
+        // 1. Invalid Seller Key Handling (Auto-deleted app embed)
+        if (interaction.isInvalidSellerKey) {
+            let desc = `Server Response: **${interaction.lastApiError || "Invalid seller key"}**`;
+            if (interaction.deletedApp) {
+                desc += `\n\n🗑️ Application **${interaction.deletedApp}** has an invalid seller key and was automatically removed from your account.`;
+                if (interaction.newActiveApp) {
+                    desc += `\n🔄 Active application switched to **${interaction.newActiveApp}**.`;
+                } else {
+                    desc += `\n⚠️ You have no more registered apps. Use \`/setsellerkey\` to set a valid key.`;
+                }
+            } else {
+                desc += `\n\nPlease use \`/setsellerkey\` to register a valid seller key.`;
+            }
+
+            const invalidEmbed = new EmbedBuilder()
+                .setTitle("❌ Invalid Seller Key")
+                .setDescription(desc)
+                .setColor(Colors.Red)
+                .setTimestamp()
+                .setFooter({ text: interaction.user.tag, iconURL: interaction.user.displayAvatarURL() });
+
+            let newOptions = typeof options === "string" ? {} : { ...options };
+            newOptions.embeds = [invalidEmbed];
+            newOptions.content = undefined;
+            newOptions.components = [];
+            newOptions.files = [];
+            return newOptions;
+        }
+
+        // 2. Disabled Function Handling
+        let isDisabled = false;
         if (lower.includes("disabled by app owner")) {
             isDisabled = true;
             const match = stringifyOptions.match(/Seller \w+(?: \w+)* function disabled by app owner/i);
@@ -71,9 +153,7 @@ function patchInteraction(interaction) {
             } else {
                 rawError = "A required API function is disabled by the app owner.";
             }
-        } 
-        // 2. If we recorded a disabled API error, and the reply is a generic failure/crash response
-        else if (rawError && (
+        } else if (rawError && (
             lower.includes("undefined") || 
             lower.includes("failed") || 
             lower.includes("error") || 
@@ -95,7 +175,27 @@ function patchInteraction(interaction) {
             newOptions.content = undefined;
             newOptions.components = [];
             newOptions.files = [];
+            return newOptions;
+        }
 
+        // 3. Generic failure override if real API error message was captured
+        if (interaction.lastApiMessage && (
+            lower.includes("check console") || 
+            lower.includes("api request failed") ||
+            lower.includes("undefined")
+        )) {
+            const apiErrorEmbed = new EmbedBuilder()
+                .setTitle("API Error")
+                .setDescription(`❌ **${interaction.lastApiMessage}**`)
+                .setColor(Colors.Red)
+                .setTimestamp()
+                .setFooter({ text: interaction.user.tag, iconURL: interaction.user.displayAvatarURL() });
+
+            let newOptions = typeof options === "string" ? {} : { ...options };
+            newOptions.embeds = [apiErrorEmbed];
+            newOptions.content = undefined;
+            newOptions.components = [];
+            newOptions.files = [];
             return newOptions;
         }
 
