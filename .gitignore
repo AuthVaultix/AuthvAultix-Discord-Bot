@@ -23,7 +23,6 @@ logs/
 # Local personal files
 README.txt
 requird.txt
-scripts/cleanInvalidSellerKeys.js
 
 # OS / Editor artifacts
 .DS_Store
