@@ -46,11 +46,8 @@ async function setSellerKey(userId, baseAppName, rawKey) {
         [userId, finalName, encryptedKey]
     );
 
-    // Set activeApp if not already set
-    const [userRows] = await pool.query("SELECT activeApp FROM users WHERE userId = ?", [userId]);
-    if (userRows.length > 0 && !userRows[0].activeApp) {
-        await pool.query("UPDATE users SET activeApp = ? WHERE userId = ?", [finalName, userId]);
-    }
+    // Automatically set newly added app as activeApp
+    await pool.query("UPDATE users SET activeApp = ? WHERE userId = ?", [finalName, userId]);
 
     return finalName;
 }

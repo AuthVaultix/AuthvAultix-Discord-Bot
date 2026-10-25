@@ -3,11 +3,10 @@ const {
     EmbedBuilder,
     Colors,
     ActionRowBuilder,
-    ButtonBuilder,
-    ButtonStyle
+    StringSelectMenuBuilder
 } = require("discord.js");
 
-const { setSellerKey } = require("../../utils/config");
+const { setSellerKey, getUserApps } = require("../../utils/config");
 const axios = require("axios");
 
 module.exports = {
@@ -47,14 +46,15 @@ module.exports = {
 
             const baseAppName = res.data.application.name;
 
-            // SAVE (AUTO XD / XD-2 / XD-3)
+            // SAVE AND AUTO-ACTIVATE NEW KEY
             const finalAppName = await setSellerKey(
                 interaction.user.id,
                 baseAppName,
                 rawKey
             );
 
-            const embed = new EmbedBuilder()
+            // 1. Send Success Message
+            const successEmbed = new EmbedBuilder()
                 .setTitle("✅ Seller Key Saved Successfully!")
                 .setColor(Colors.Green)
                 .setDescription(
@@ -64,24 +64,47 @@ module.exports = {
                         `📱 **Application Name:**`,
                         `\`${finalAppName}\``,
                         ``,
-                        `🚀 Use \`/switchapp\` to select active app`,
-                        `🗑️ Use \`/deleteapp\` to delete active app`
+                        `✨ **Active Application:** Set to **\`${finalAppName}\`** automatically!`,
+                        ``,
+                        `🚀 Use \`/switchapp\` anytime to switch between apps`,
+                        `🗑️ Use \`/deleteapp\` to remove an app`
                     ].join("\n")
                 )
                 .setTimestamp();
 
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId("open_switchapp")
-                    .setLabel("Switch Application")
-                    .setStyle(ButtonStyle.Primary)
-                    .setEmoji("🔄")
-            );
-
-            return interaction.editReply({
-                embeds: [embed],
-                components: [row]
+            await interaction.editReply({
+                embeds: [successEmbed]
             });
+
+            // 2. Automatically execute /switchapp dropdown so the user doesn't have to run it manually
+            const apps = await getUserApps(interaction.user.id);
+            const uniqueApps = [...new Set(apps)];
+
+            if (uniqueApps.length > 0) {
+                const menu = new StringSelectMenuBuilder()
+                    .setCustomId("switchapp_select")
+                    .setPlaceholder(`Active: ${finalAppName} (Select to switch)`)
+                    .addOptions(
+                        uniqueApps.map(app => ({
+                            label: app,
+                            value: app,
+                            description: app === finalAppName ? "Current Active Application" : `Switch to ${app}`
+                        }))
+                    );
+
+                const row = new ActionRowBuilder().addComponents(menu);
+
+                return await interaction.followUp({
+                    embeds: [
+                        new EmbedBuilder()
+                            .setTitle("🔄 Switch Application")
+                            .setDescription(`Current active application: **${finalAppName}**\n\nTo switch to another application, select it from the menu below:`)
+                            .setColor(Colors.Blue)
+                    ],
+                    components: [row],
+                    flags: 64
+                });
+            }
 
         } catch (err) {
             console.error("SETSELLERKEY ERROR:", err);
