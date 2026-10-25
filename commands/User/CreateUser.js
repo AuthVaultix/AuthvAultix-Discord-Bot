@@ -64,12 +64,22 @@ const sellerKey = await getActiveSellerKey(interaction.user.id);
         try {
             const res = await axios.get(url);
 
-            if (!res.data.success) {
+            let data = res.data;
+            if (typeof data === "string") {
+                try {
+                    data = JSON.parse(data.trim());
+                } catch (_) {}
+            }
+
+            const isSuccess = data && (data.success === true || data.success === "true");
+
+            if (!isSuccess) {
+                const errorMsg = data?.msg || data?.message || (typeof data === "string" ? data : "Unknown error");
                 return interaction.editReply({
                     embeds: [
                         new EmbedBuilder()
                             .setColor(Colors.Red)
-                            .setDescription(`❌ Failed — ${res.data.msg}`)
+                            .setDescription(`❌ Failed — ${errorMsg}`)
                             .setTimestamp()
                     ]
                 });

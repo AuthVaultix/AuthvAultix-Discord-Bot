@@ -72,8 +72,6 @@ const strictTlsAgent = new https.Agent({
    ⚠️  HOW TO GET FINGERPRINT:
    openssl s_client -connect authvaultix.com:443 < /dev/null 2>/dev/null \
    | openssl x509 -fingerprint -sha256 -noout
-
-   Or run: node scripts/fetchCertFingerprint.js
    ============================================================ */
 const PINNED_HOSTS = {};
 
@@ -293,11 +291,9 @@ console.log(
         ? "   ✅ HMAC request signing active"
         : "   ℹ️  HMAC signing: optional (requires authvaultix.com server support)"
 );
-console.log(
-    Object.keys(PINNED_HOSTS).length > 0
-        ? `   ✅ Cert pinning: ${Object.keys(PINNED_HOSTS).join(", ")}`
-        : "   ⚠️  Cert pinning: not configured (run scripts/fetchCertFingerprint.js)"
-);
+if (Object.keys(PINNED_HOSTS).length > 0) {
+    console.log(`   ✅ Cert pinning: ${Object.keys(PINNED_HOSTS).join(", ")}`);
+}
 
 module.exports = {
     checkRateLimit,
